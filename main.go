@@ -52,7 +52,7 @@ func (res *cmdResult) fmtStdOut() string {
 	).Replace(str)
 }
 
-// runCommand :
+// runCommand : Copy from mattn/go-pipeline
 func runCommand(ctx context.Context, commands ...[]string) ([]byte, []byte, error) {
 	cmds := make([]*exec.Cmd, len(commands))
 	var err error
