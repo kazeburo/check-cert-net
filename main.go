@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jessevdk/go-flags"
@@ -60,8 +61,21 @@ func runCommand(ctx context.Context, stdout, stderr io.Writer, commands ...[]str
 	return nil
 }
 
-func fmtOut(s string) string {
-	out := strings.TrimRight(s, "\n")
+type combinedBuffer struct {
+	b bytes.Buffer
+	m sync.Mutex
+}
+
+func (b *combinedBuffer) Write(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *combinedBuffer) String() string {
+	b.m.Lock()
+	defer b.m.Unlock()
+	out := strings.TrimRight(b.b.String(), "\n")
 	out = strings.NewReplacer(
 		"\r\n", "\\r\\n",
 		"\r", "\\r",
@@ -96,29 +110,28 @@ func fetchDates(opts cmdOpts) (*time.Time, error) {
 	errCh := make(chan error, 1)
 
 	go func() {
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
+		var buf combinedBuffer
 		err := runCommand(
 			ctx,
-			&stdout,
-			&stderr,
+			&buf,
+			&buf,
 			[]string{"echo", "QUIT"},
 			sClientCmd,
 			[]string{"openssl", "x509", "-noout", "-dates"},
 		)
 
 		if err != nil {
-			errCh <- fmt.Errorf("%s:%s", err, fmtOut(stderr.String()))
+			errCh <- fmt.Errorf("%s:%s", err, buf.String())
 			return
 		}
 
-		result := notAfterRegexp.FindAllStringSubmatch(fmtOut(stdout.String()), -1)
-		if len(result) != 1 {
-			errCh <- fmt.Errorf("Output not contain notAfter=: %s", fmtOut(stdout.String()))
+		match := notAfterRegexp.FindAllStringSubmatch(buf.String(), -1)
+		if len(match) != 1 {
+			errCh <- fmt.Errorf("Output not >contain notAfter=: %s", buf.String())
 			return
 		}
 
-		notAfter, err := time.Parse(layout, result[0][1])
+		notAfter, err := time.Parse(layout, match[0][1])
 		if err != nil {
 			errCh <- err
 			return
