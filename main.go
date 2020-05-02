@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -28,58 +29,45 @@ type cmdOpts struct {
 	Warn       int64         `short:"w" long:"warning" default:"30" description:"The threshold in days before expiry"`
 }
 
-type cmdResult struct {
-	StdOut []byte
-	StdErr []byte
-	Error  error
-}
-
-func (res *cmdResult) fmtStdErr() string {
-	str := strings.TrimRight(string(res.StdErr), "\n")
-	return strings.NewReplacer(
-		"\r\n", "\\r\\n",
-		"\r", "\\r",
-		"\n", "\\n",
-	).Replace(str)
-}
-
-func (res *cmdResult) fmtStdOut() string {
-	str := strings.TrimRight(string(res.StdOut), "\n")
-	return strings.NewReplacer(
-		"\r\n", "\\r\\n",
-		"\r", "\\r",
-		"\n", "\\n",
-	).Replace(str)
-}
+var layout = "Jan 2 15:04:05 2006 MST"
+var notAfterRegexp = regexp.MustCompile(`notAfter=(.+)$`)
 
 // runCommand : Copy from mattn/go-pipeline
-func runCommand(ctx context.Context, commands ...[]string) ([]byte, []byte, error) {
+func runCommand(ctx context.Context, stdout, stderr io.Writer, commands ...[]string) error {
 	cmds := make([]*exec.Cmd, len(commands))
 	var err error
-	var stderr bytes.Buffer
 
 	for i, c := range commands {
 		cmds[i] = exec.CommandContext(ctx, c[0], c[1:]...)
 		if i > 0 {
 			if cmds[i].Stdin, err = cmds[i-1].StdoutPipe(); err != nil {
-				return nil, stderr.Bytes(), err
+				return err
 			}
 		}
-		cmds[i].Stderr = &stderr
+		cmds[i].Stderr = stderr
 	}
-	var out bytes.Buffer
-	cmds[len(cmds)-1].Stdout = &out
+	cmds[len(cmds)-1].Stdout = stdout
 	for _, c := range cmds {
 		if err = c.Start(); err != nil {
-			return nil, stderr.Bytes(), err
+			return err
 		}
 	}
 	for _, c := range cmds {
 		if err = c.Wait(); err != nil {
-			return nil, stderr.Bytes(), err
+			return err
 		}
 	}
-	return out.Bytes(), stderr.Bytes(), nil
+	return nil
+}
+
+func fmtOut(s string) string {
+	out := strings.TrimRight(s, "\n")
+	out = strings.NewReplacer(
+		"\r\n", "\\r\\n",
+		"\r", "\\r",
+		"\n", "\\n",
+	).Replace(out)
+	return out
 }
 
 func fetchDates(opts cmdOpts) (*time.Time, error) {
@@ -104,42 +92,50 @@ func fetchDates(opts cmdOpts) (*time.Time, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
 	defer cancel()
-	ch := make(chan cmdResult, 1)
-	var res cmdResult
+	ch := make(chan time.Time, 1)
+	errCh := make(chan error, 1)
 
 	go func() {
-		stdout, stderr, err := runCommand(
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		err := runCommand(
 			ctx,
+			&stdout,
+			&stderr,
 			[]string{"echo", "QUIT"},
 			sClientCmd,
 			[]string{"openssl", "x509", "-noout", "-dates"},
 		)
-		ch <- cmdResult{stdout, stderr, err}
+
+		if err != nil {
+			errCh <- fmt.Errorf("%s:%s", err, fmtOut(stderr.String()))
+			return
+		}
+
+		result := notAfterRegexp.FindAllStringSubmatch(fmtOut(stdout.String()), -1)
+		if len(result) != 1 {
+			errCh <- fmt.Errorf("Output not contain notAfter=: %s", fmtOut(stdout.String()))
+			return
+		}
+
+		notAfter, err := time.Parse(layout, result[0][1])
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		ch <- notAfter
 	}()
 
 	select {
-	case res = <-ch:
-		// nothing
-	case <-ctx.Done():
-		res = cmdResult{nil, nil, fmt.Errorf("Command timeout")}
-	}
-
-	if res.Error != nil {
-		return nil, fmt.Errorf("%s: %s", res.Error.Error(), res.fmtStdErr())
-	}
-
-	r := regexp.MustCompile(`notAfter=(.+)$`)
-	result := r.FindAllStringSubmatch(res.fmtStdOut(), -1)
-	if len(result) != 1 {
-		return nil, fmt.Errorf("Output not contain notAfter=: %s", res.fmtStdOut())
-	}
-
-	const layout = "Jan 2 15:04:05 2006 MST"
-	notAfter, err := time.Parse(layout, result[0][1])
-	if err != nil {
+	case notAfter := <-ch:
+		return &notAfter, nil
+	case err := <-errCh:
 		return nil, err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("Command timeout")
 	}
-	return &notAfter, nil
+
 }
 
 func checkCertNet(opts cmdOpts) *checkers.Checker {
