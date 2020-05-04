@@ -33,8 +33,47 @@ type cmdOpts struct {
 var layout = "Jan 2 15:04:05 2006 MST"
 var notAfterRegexp = regexp.MustCompile(`notAfter=(.+)$`)
 
+// Buffer for openssl s_client | openssl x509
+type Buffer struct {
+	b bytes.Buffer
+	m sync.Mutex
+}
+
+func (b *Buffer) Write(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *Buffer) String() string {
+	b.m.Lock()
+	defer b.m.Unlock()
+	out := strings.TrimRight(b.b.String(), "\n")
+	out = strings.NewReplacer(
+		"\r\n", "\\r\\n",
+		"\r", "\\r",
+		"\n", "\\n",
+	).Replace(out)
+	return out
+}
+
+// GetNotAfter parse and get NotAfter
+func (b *Buffer) GetNotAfter() (time.Time, error) {
+	s := b.String()
+	match := notAfterRegexp.FindAllStringSubmatch(s, -1)
+	if len(match) != 1 {
+		return time.Time{}, fmt.Errorf("Output not >contain notAfter=: %s", s)
+	}
+
+	notAfter, err := time.Parse(layout, match[0][1])
+	if err != nil {
+		return time.Time{}, err
+	}
+	return notAfter, nil
+}
+
 // runCommand : Copy from mattn/go-pipeline
-func runCommand(ctx context.Context, stdout, stderr io.Writer, commands ...[]string) error {
+func runPipeline(ctx context.Context, stdout, stderr io.Writer, commands ...[]string) error {
 	cmds := make([]*exec.Cmd, len(commands))
 	var err error
 
@@ -61,30 +100,7 @@ func runCommand(ctx context.Context, stdout, stderr io.Writer, commands ...[]str
 	return nil
 }
 
-type combinedBuffer struct {
-	b bytes.Buffer
-	m sync.Mutex
-}
-
-func (b *combinedBuffer) Write(p []byte) (n int, err error) {
-	b.m.Lock()
-	defer b.m.Unlock()
-	return b.b.Write(p)
-}
-
-func (b *combinedBuffer) String() string {
-	b.m.Lock()
-	defer b.m.Unlock()
-	out := strings.TrimRight(b.b.String(), "\n")
-	out = strings.NewReplacer(
-		"\r\n", "\\r\\n",
-		"\r", "\\r",
-		"\n", "\\n",
-	).Replace(out)
-	return out
-}
-
-func fetchDates(opts cmdOpts) (*time.Time, error) {
+func getNotAfter(opts cmdOpts) (*time.Time, error) {
 	sClientCmd := []string{"openssl", "s_client"}
 	if opts.ServerName != "" {
 		sClientCmd = append(sClientCmd, "-servername")
@@ -110,8 +126,8 @@ func fetchDates(opts cmdOpts) (*time.Time, error) {
 	errCh := make(chan error, 1)
 
 	go func() {
-		var buf combinedBuffer
-		err := runCommand(
+		var buf Buffer
+		err := runPipeline(
 			ctx,
 			&buf,
 			&buf,
@@ -125,13 +141,7 @@ func fetchDates(opts cmdOpts) (*time.Time, error) {
 			return
 		}
 
-		match := notAfterRegexp.FindAllStringSubmatch(buf.String(), -1)
-		if len(match) != 1 {
-			errCh <- fmt.Errorf("Output not >contain notAfter=: %s", buf.String())
-			return
-		}
-
-		notAfter, err := time.Parse(layout, match[0][1])
+		notAfter, err := buf.GetNotAfter()
 		if err != nil {
 			errCh <- err
 			return
@@ -152,7 +162,7 @@ func fetchDates(opts cmdOpts) (*time.Time, error) {
 }
 
 func checkCertNet(opts cmdOpts) *checkers.Checker {
-	notAfter, err := fetchDates(opts)
+	notAfter, err := getNotAfter(opts)
 	if err != nil {
 		return checkers.Critical(err.Error())
 	}
