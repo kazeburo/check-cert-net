@@ -3,10 +3,10 @@ LDFLAGS=-ldflags "-X main.Version=${VERSION}"
 
 all: check-cert-net
 
-check-cert-net: main.go
+check-cert-net: main.go execpipe/*.go
 	go build $(LDFLAGS) -o check-cert-net main.go
 
-linux: main.go
+linux: main.go execpipe/*.go
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o check-cert-net main.go
 
 check:
