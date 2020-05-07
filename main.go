@@ -29,7 +29,7 @@ type cmdOpts struct {
 }
 
 var layout = "Jan 2 15:04:05 2006 MST"
-var notAfterRegexp = regexp.MustCompile(`notAfter=(.+)$`)
+var notAfterRegexp = regexp.MustCompile(`notAfter=(\w\w\w +\d+ \d\d:\d\d:\d\d \d\d\d\d \w\w\w)`)
 
 func fmtString(s string) string {
 	out := strings.TrimRight(s, "\n")
