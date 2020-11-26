@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 	"github.com/mackerelio/checkers"
 )
 
-// Version by Makefile
-var Version string
+// version by Makefile
+var version string
 
 type cmdOpts struct {
 	Host       string        `short:"H" long:"host" default:"localhost" description:"Hostname"`
@@ -26,6 +27,7 @@ type cmdOpts struct {
 	ECDSA      bool          `long:"ecdsa" description:"Preferred aECDSA cipher to use"`
 	Crit       int64         `short:"c" long:"critical" default:"14" description:"The critical threshold in days before expiry"`
 	Warn       int64         `short:"w" long:"warning" default:"30" description:"The threshold in days before expiry"`
+	Version    bool          `short:"v" long:"version" description:"Show version"`
 }
 
 var layout = "Jan 2 15:04:05 2006 MST"
@@ -132,11 +134,26 @@ func checkCertNet(opts cmdOpts) *checkers.Checker {
 	return checkers.Ok(msg)
 }
 
+func printVersion() {
+	fmt.Printf(`%s %s
+Compiler: %s %s
+`,
+		os.Args[0],
+		version,
+		runtime.Compiler,
+		runtime.Version())
+}
+
 func main() {
 	opts := cmdOpts{}
-	psr := flags.NewParser(&opts, flags.Default)
+	psr := flags.NewParser(&opts, flags.HelpFlag|flags.PassDoubleDash)
 	_, err := psr.Parse()
+	if opts.Version {
+		printVersion()
+		os.Exit(0)
+	}
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 	ckr := checkCertNet(opts)
