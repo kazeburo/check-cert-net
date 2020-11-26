@@ -1,4 +1,4 @@
-VERSION=0.0.4
+VERSION=0.0.5
 LDFLAGS=-ldflags "-X main.version=${VERSION}"
 
 all: check-cert-net
