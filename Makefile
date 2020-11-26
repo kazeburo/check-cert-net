@@ -1,5 +1,5 @@
 VERSION=0.0.4
-LDFLAGS=-ldflags "-X main.Version=${VERSION}"
+LDFLAGS=-ldflags "-X main.version=${VERSION}"
 
 all: check-cert-net
 
@@ -19,4 +19,3 @@ tag:
 	git tag v${VERSION}
 	git push origin v${VERSION}
 	git push origin master
-	goreleaser --rm-dist
