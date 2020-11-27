@@ -2,7 +2,7 @@
 
 Check a remote certification expiry using openssl s_client.
 
-usage
+## Usage
 
 ```
 % ./check-cert-net -h
@@ -26,5 +26,11 @@ Help Options:
 ```
 $ check-cert-net --servername example.com --host 127.0.0.1 --port 443 --rsa -w 10 -c 7
 check-cert-net OK: Expiration date: 2020-07-02, 62 days remaining
+```
+
+## Install
+
+```
+$ mkr plugin install kazeburo/check-cert-net
 ```
 
