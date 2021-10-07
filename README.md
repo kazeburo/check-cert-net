@@ -10,17 +10,19 @@ Usage:
   check-cert-net [OPTIONS]
 
 Application Options:
-  -H, --host=       Hostname (default: localhost)
-  -p, --port=       Port (default: 443)
-      --servername= servername in ClientHello
-      --timeout=    Timeout to connect mysql (default: 5s)
-      --rsa         Preferred aRSA cipher to use
-      --ecdsa       Preferred aECDSA cipher to use
-  -c, --critical=   The critical threshold in days before expiry (default: 14)
-  -w, --warning=    The threshold in days before expiry (default: 30)
+  -H, --host=              Hostname (default: localhost)
+  -p, --port=              Port (default: 443)
+      --servername=        servername in ClientHello
+      --verify-servername  verify servername
+      --timeout=           Timeout to connect to server (default: 5s)
+      --rsa                Preferred aRSA cipher to use
+      --ecdsa              Preferred aECDSA cipher to use
+  -c, --critical=          The critical threshold in days before expiry (default: 14)
+  -w, --warning=           The threshold in days before expiry (default: 30)
+  -v, --version            Show version
 
 Help Options:
-  -h, --help        Show this help message
+  -h, --help               Show this help message
 ```
 
 ```
